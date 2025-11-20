@@ -6,4 +6,8 @@
 # unignore all dirs
 !*/
 
+*.exe
+
 tests/*
+
+.venv/*
