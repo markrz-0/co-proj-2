@@ -1,0 +1,9 @@
+# 3 next lines are fancy way to ignore all extensionless files
+# ignore all
+*
+# unignore all files with extension
+!*.*
+# unignore all dirs
+!*/
+
+tests/*
