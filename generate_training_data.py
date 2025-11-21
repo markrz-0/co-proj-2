@@ -1,8 +1,8 @@
 import random
 import sys
 import os
+import time
 import networkx as nx
-
 
 
 def save_graph(G: nx.Graph, n, m, filename: str):
@@ -41,20 +41,48 @@ try:
 
     if not os.path.exists('tests/out'):
         os.mkdir('tests/out')
-
         
     if not os.path.exists('tests/features'):
         os.mkdir('tests/features')
 
+    if not os.path.exists('data'):
+        os.mkdir('data')
+
+    total_feature_data = []
+    total_output_data = []
 
     for i in range(1, k + 1):
         n = random.randint(min_n, max_n)
         m = int(random.random()  * n * n)
+        
         print(f"{i}/{k} (N = {n}; M = {m})")
+        
         g = generate_simple(n, m)
         save_graph(g, n, m, f'tests/in/data{i}.in')
+
         os.system(f"{solver_name} < tests/in/data{i}.in > tests/out/data{i}.out")
         os.system(f"{features_generator_name} < tests/in/data{i}.in > tests/features/data{i}.out")
+
+        output_data = ['0.0\n'] * n
+
+        with open(f"tests/out/data{i}.out", 'r') as f:
+            _ = f.readline()
+            nodes = list(map(int, f.readline().strip().split(" ")))
+            for node in nodes:
+                output_data[node] = '1.0\n'
+            total_output_data.extend(output_data)
+        with open(f"tests/features/data{i}.out", 'r') as f:
+            lines = f.readlines()
+            total_feature_data.extend(lines)
+    
+    time_id = int(time.time())
+    with open(f'data/features_pack_{time_id}.txt', 'w') as f:
+        f.writelines(total_feature_data)
+    with open(f'data/output_pack_{time_id}.txt', 'w') as f:
+        f.writelines(total_output_data)
+
+
+
 except:
     print(f"usage: py {sys.argv[0]} <test_num> <min_n> <max_n> <solver_name> <features_generator_name>")
     print("On linux you might want to prefix solver and feature generator with ./")
