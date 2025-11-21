@@ -27,6 +27,7 @@ try:
     min_n = int(sys.argv[2])
     max_n = int(sys.argv[3])
     solver_name = sys.argv[4]
+    features_generator_name = sys.argv[5]
     
     assert min_n > 0
     assert max_n > 0
@@ -41,16 +42,25 @@ try:
     if not os.path.exists('tests/out'):
         os.mkdir('tests/out')
 
+        
+    if not os.path.exists('tests/features'):
+        os.mkdir('tests/features')
+
+
     for i in range(1, k + 1):
         n = random.randint(min_n, max_n)
         m = int(random.random()  * n * n)
         print(f"{i}/{k} (N = {n}; M = {m})")
         g = generate_simple(n, m)
         save_graph(g, n, m, f'tests/in/data{i}.in')
-        if os.name == "posix":
-            os.system(f"./{solver_name} < tests/in/data{i}.in > tests/out/data{i}.out")
-        elif os.name == "nt":
-            os.system(f"{solver_name} < tests/in/data{i}.in > tests/out/data{i}.out")
+        os.system(f"{solver_name} < tests/in/data{i}.in > tests/out/data{i}.out")
+        os.system(f"{features_generator_name} < tests/in/data{i}.in > tests/features/data{i}.out")
 except:
-    print(f"usage: py {sys.argv[0]} <test_num> <min_n> <max_n> <solver_name>")
+    print(f"usage: py {sys.argv[0]} <test_num> <min_n> <max_n> <solver_name> <features_generator_name>")
+    print("On linux you might want to prefix solver and feature generator with ./")
+    print(f"Both programs should be resolvable from directory of {sys.argv[0]}")
+    print("LINUX:")
+    print(f"py {sys.argv[0]} 1000 10 20 ./solver ./features")
+    print("WINDOWS:")
+    print(f"py {sys.argv[0]} 1000 10 20 solver.exe features.exe")
 
