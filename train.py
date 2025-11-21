@@ -181,6 +181,12 @@ if __name__ == "__main__":
         
         plt.savefig('loss_plot.png')
         print("Loss plot saved to 'loss_plot.png'")
+
+        # 8. Save the Model
+        model_path = 'simple_nn_model.pth'
+        torch.save(model.state_dict(), model_path)
+        print(f"Model saved to {model_path}")
+
         plt.show()
 
     except Exception as e:
