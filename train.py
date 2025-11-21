@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 # 1. Define the Neural Network Architecture
 # ==========================================
 class SimpleNN(nn.Module):
-    def __init__(self, input_size=7, hidden_size=20, output_size=1):
+    def __init__(self, input_size=7, hidden_size=20, output_size=2):
         super(SimpleNN, self).__init__()
         # Input Layer -> Hidden Layer
         self.layer1 = nn.Linear(input_size, hidden_size)
@@ -56,22 +56,20 @@ if __name__ == "__main__":
     # Configuration
     BATCH_SIZE = 512
     LEARNING_RATE = 0.002
-    EPOCHS = 200
+    EPOCHS = 120
     TRAIN_SPLIT = 0.8  # 80% training, 20% validation
     
     # --- DATASET CONFIGURATION ---
     # Add more file pairs here in the future
     DATA_SOURCES = [
         {
-            'features': os.path.join('data', 'features_pack_1763733893.txt'), 
-            'output': os.path.join('data', 'output_pack_1763733893.txt')
+            'features': os.path.join('data', 'features_pack_1763749469.txt'), 
+            'output': os.path.join('data', 'output_pack_1763749469.txt')
         },
-        {
-            'features': os.path.join('data', 'features_pack_1763736842.txt'), 
-            'output': os.path.join('data', 'output_pack_1763736842.txt')
-        },
-        # Example of adding a future file:
-        # {'features': 'data/features3.txt', 'output': 'data/output3.txt'},
+        # {
+        #     'features': os.path.join('data', 'features_pack_1763736842.txt'), 
+        #     'output': os.path.join('data', 'output_pack_1763736842.txt')
+        # },
     ]
 
     try:

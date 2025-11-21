@@ -4,40 +4,9 @@
 #include <set>
 #include <chrono>
 #include <cmath>
+#include <tuple>
 
-//#include "model_weights.h"
-
-#ifndef MODEL_WEIGHTS_H
-#define MODEL_WEIGHTS_H
-
-// Shape: [20, 7]
-const float layer1_weight[] = {
-    -0.66389084, -0.17938717, 0.09002069, 0.76644737, -0.024630778, -0.3636426, -1.5655707, 0.23154745, 0.0845111, -0.27982166, -0.18891105, -0.33367375, -0.29384333, 0.15032718, -0.45735013, 0.08760719, -0.50571173, 0.998237, -9.897486e-05, 0.6116006, -0.54501855, 0.4018678, -0.62752956, 0.16056755, -0.7815277, -0.33605784, 0.10492528, 1.0146252, -0.3059654, -0.047742583, -0.14473857, -0.47677264, -0.95850194, 0.18334137, 1.2217054, -0.10742512, 0.13153204, -0.2025283, -0.3342942, -0.5156914, 1.83515, -0.94211996, -0.04258448, -0.33503473, -0.08130658, -0.023038656, 0.31911096, -0.23100606, -0.17127529, 0.14077254, -0.11862691, 0.043759007, -1.1804479, 1.2290167, -0.6920874, 0.73754674, 1.0975868, 0.050941616, -0.038605325, -0.2889235, -0.44720381, -0.8981907, 0.37686312, 0.6856472, -0.30222732, 0.047070652, 0.60381687, -0.2560018, 0.45799425, -0.59022266, 0.6493156, -2.1119416, -0.4401565, 0.8076474, 0.33635664, 0.13996302, -0.016112203, -0.2718842, -0.097953446, 0.07028379, 1.1716713, 0.47826442, -0.244837, -1.1262448, -0.09658347, -1.1261193, 0.1271544, -0.85636234, -0.13307495, 0.031028602, 1.1622044, -1.4738469, 1.6467141, -1.3429933, -0.054677308, -0.52558947, 0.20596054, -0.38711682, 0.23449227, -0.0859696, -0.33206633, -0.16517806, 0.27295277, 0.33253166, 0.053032607, 0.3617698, 0.11958264, -0.28167537, 0.08866644, 0.5264054, 0.78630143, -2.398054, 0.14523253, -0.21907374, -0.37377334, -0.08185929, 0.1612635, 0.21558496, -0.2933995, -0.6209251, -0.26736504, 0.0746293, 0.055090386, -0.13491102, 1.1023101, 0.8046462, -0.092035815, 0.032918293, -0.2144794, 1.7795572, -0.77015245, 0.1383797, -1.0429072, -0.09745458, 0.044614054, -0.04600077, -0.564047, 1.3765807, -0.08248072, 0.699098
-};
-
-const int layer1_weight_out = 20;
-const int layer1_weight_in = 7;
-
-// Shape: [20]
-const float layer1_bias[] = {
-    0.11113388, -0.07836115, 0.13031198, 0.09604987, 0.45508438, 0.20462324, -0.13913663, -0.028082361, 0.23992328, 0.29581934, -0.40872347, -0.097502895, 0.26650548, 0.5177326, -0.33425543, 0.2340111, -0.1313708, -0.2619314, 0.042632982, -0.43813613
-};
-
-// Shape: [1, 20]
-const float layer2_weight[] = {
-    -0.43981454, -0.18145227, 0.6031261, -0.23865733, -0.8201003, 1.7810662, -0.11982499, -2.7080305, -0.20887758, 0.7266803, 0.13191357, 1.1558307, -0.22190206, -1.1272582, -0.059956744, 1.3535683, -0.18224664, 0.75175625, -2.5192735, -1.057876
-};
-
-const int layer2_weight_out = 1;
-const int layer2_weight_in = 20;
-
-// Shape: [1]
-const float layer2_bias[] = {
-    0.024606882
-};
-
-#endif // MODEL_WEIGHTS_H
-
+#include "model_weights.h"
 
 /*
 MAXPATHS_GLOBAL_POOL: double the higher the more accurate and slower
@@ -132,7 +101,12 @@ void denseLayer(const float* input, const float* weights, const float* bias, flo
     }
 }
 
-float forwardPropagation(const std::vector<float>& input_data) {
+struct NNOutput {
+    float chanceOfNodeBeingInPath;
+    float chanceOfNodeBeingStarterNode;
+};
+
+NNOutput forwardPropagation(const std::vector<float>& input_data) {
     float hidden_layer[layer1_weight_out]; // Buffer for layer 1 output
     float final_output[layer2_weight_out]; // Buffer for layer 2 output
 
@@ -146,7 +120,12 @@ float forwardPropagation(const std::vector<float>& input_data) {
     // --- Layer 2 Forward ---
     denseLayer(hidden_layer, layer2_weight, layer2_bias, final_output, layer2_weight_in, layer2_weight_out);
 
-    return final_output[0]; // i know... hardcoded magic number but idc and the NN only has 1 output
+    NNOutput out;
+
+    out.chanceOfNodeBeingInPath = final_output[0];
+    out.chanceOfNodeBeingStarterNode = final_output[1];
+
+    return out;// i know... hardcoded magic number but idc and the NN only has 1 output
 }
 
 // number of features cannot be larger than 20 for small problem (ideally smaller than 10)
@@ -280,10 +259,10 @@ std::vector<NodeFeaturesNormalized> calculateFeatures(const std::vector<std::vec
 class Graph {
 public:
     std::vector<std::vector<int>> adj;
-    std::vector<float> scores;
-    float totalScore;
+    std::vector<NNOutput> scores;
+    float totalScoreStarterNode;
 
-    Graph(int V) : totalScore(0.0) {
+    Graph(int V) : totalScoreStarterNode(0.0) {
         adj.resize(V);
     }
 
@@ -300,15 +279,15 @@ public:
 
         auto features = calculateFeatures(adj);
 
-        scores = std::vector<float>(adj.size());
+        scores = std::vector<NNOutput>(adj.size());
         for (int i = 0; i < adj.size(); i++) {
             scores[i] = forwardPropagation(features[i].to_vector());
-            totalScore += scores[i];
+            totalScoreStarterNode += scores[i].chanceOfNodeBeingStarterNode;
         }
 
         for (int i = 0; i < adj.size(); i++) {
             sort(adj[i].begin(), adj[i].end(), [&](int a, int b) {
-                return scores[a] > scores[b];
+                return scores[a].chanceOfNodeBeingInPath > scores[b].chanceOfNodeBeingInPath;
             });
         }
     }
@@ -435,10 +414,17 @@ public:
         // Initial valid vertices set (all vertices are valid at start)
         m_valid_vertices = std::vector<bool>(m_graph.numOfVertices(), true);
 
-        // Line 3: Loop through all vertices
-        // Note: The paper implies an ordering or random access. 
-        // Iterating 0 to V-1 is standard.
-        for (int s = 0; s < m_graph.numOfVertices(); ++s) {
+        std::vector<std::tuple<float, float, int>> nodes(m_graph.numOfVertices());
+
+        for (int i = 0; i < m_graph.numOfVertices(); i++) {
+            nodes[i] = std::make_tuple(-m_graph.scores[i].chanceOfNodeBeingStarterNode, -m_graph.scores[i].chanceOfNodeBeingInPath, i);
+        }
+
+        std::sort(nodes.begin(), nodes.end());
+
+        for (auto node : nodes) {
+
+            int s = std::get<2>(node);
             
             // Line 4: #paths <- 0
             m_num_paths = 0;
@@ -452,7 +438,7 @@ public:
             if (m_timegate.expired()) break;
 
             
-            m_current_max_paths =  (int)(((double)m_graph.scores[s] / (double)m_graph.totalScore) * MAXPATHS_GLOBAL_POOL);
+            m_current_max_paths =  (int)(((double)-std::get<0>(node) / (double)m_graph.totalScoreStarterNode) * MAXPATHS_GLOBAL_POOL);
 
             m_valid_vertices[s] = false;
 

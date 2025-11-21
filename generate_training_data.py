@@ -63,13 +63,15 @@ try:
         os.system(f"{solver_name} < tests/in/data{i}.in > tests/out/data{i}.out")
         os.system(f"{features_generator_name} < tests/in/data{i}.in > tests/features/data{i}.out")
 
-        output_data = ['0.0\n'] * n
+        output_data = ['0.0 0.0\n'] * n
 
         with open(f"tests/out/data{i}.out", 'r') as f:
             _ = f.readline()
             nodes = list(map(int, f.readline().strip().split(" ")))
-            for node in nodes:
-                output_data[node] = '1.0\n'
+            p = (len(nodes) - 1) / 2
+            for idx, node in enumerate(nodes):
+                output_data[node] = '1.0 ' + str((idx / p - 1) * (idx / p - 1)) + '\n'
+
             total_output_data.extend(output_data)
         with open(f"tests/features/data{i}.out", 'r') as f:
             lines = f.readlines()
