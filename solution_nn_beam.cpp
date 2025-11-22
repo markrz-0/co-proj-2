@@ -7,6 +7,7 @@
 #include <tuple>
 
 #include "model_weights.h"
+#include <numeric>
 
 /*
 UPDATE_NOW_AFTER_TICKS: int the higher the slower the alg gets. 
@@ -98,6 +99,13 @@ void denseLayer(const float* input, const float* weights, const float* bias, flo
 struct NNOutput {
     float chanceOfNodeBeingInPath;
     float chanceOfNodeBeingStarterNode;
+
+    static NNOutput isolated() {
+        NNOutput out;
+        out.chanceOfNodeBeingInPath = -1.0f;
+        out.chanceOfNodeBeingStarterNode = -1.0f;
+        return out;
+    }
 };
 
 NNOutput forwardPropagation(const std::vector<float>& input_data) {
@@ -229,6 +237,7 @@ std::vector<float> getClusteringCoeffs(std::vector<std::vector<int>>& g) {
 
 std::vector<NodeFeaturesNormalized> calculateFeatures(std::vector<std::vector<int>>& g) {
     int n = g.size();
+    int no_0_n = 0;
 
     std::vector<float> degrees_log(n, 0);
     
@@ -237,7 +246,9 @@ std::vector<NodeFeaturesNormalized> calculateFeatures(std::vector<std::vector<in
         // we do log here to give higher impact to lower weights 
         // (distinction between 2 and 4 degree should be bigger than 1001 degree and 1030 degree)
         // we need to use log1p to avoid division by 0 later while calculating harmonic mean
+        if (g[i].size() == 0) continue;
         degrees_log[i] = log1p(g[i].size()); 
+        no_0_n++;
     }
 
     std::vector<float> coeffs = getClusteringCoeffs(g);
@@ -245,7 +256,7 @@ std::vector<NodeFeaturesNormalized> calculateFeatures(std::vector<std::vector<in
     for (double coeff : coeffs) {
         running_sum += coeff;
     }
-    double global_mean_coeff = running_sum / n;
+    double global_mean_coeff = running_sum / no_0_n;
 
     // 2. Calculate Global Statistics
     double global_sum = 0;
@@ -254,7 +265,11 @@ std::vector<NodeFeaturesNormalized> calculateFeatures(std::vector<std::vector<in
     float global_min_d = std::numeric_limits<float>::max();
     float global_max_d = 0.0f;
 
+    int i = -1;
     for(float d : degrees_log) {
+        i++;
+        if (g[i].size() == 0) continue;
+
         global_min_d = std::min(global_min_d, d);
         global_max_d = std::max(global_max_d, d);
 
@@ -264,13 +279,13 @@ std::vector<NodeFeaturesNormalized> calculateFeatures(std::vector<std::vector<in
         }
     }
 
-    float global_arithmetic_mean = (n > 0) ? (float)(global_sum / n) : 0.0f;
+    float global_arithmetic_mean = (no_0_n > 0) ? (float)(global_sum / no_0_n) : 0.0f;
     
     // Note: Technically Harmonic mean of a set containing 0 is 0. 
     // Since we treated isolated nodes as 0, checking if global_reciprocal_sum > 0 is a proxy.
     float global_harmonic_mean = 0.0f;
     if (global_reciprocal_sum > 1e-9) {
-        global_harmonic_mean = (float)(n / global_reciprocal_sum);
+        global_harmonic_mean = (float)(no_0_n / global_reciprocal_sum);
     }
 
     float norm_global_arith = normalize(global_arithmetic_mean, global_min_d, global_max_d);
@@ -290,9 +305,8 @@ std::vector<NodeFeaturesNormalized> calculateFeatures(std::vector<std::vector<in
         f.harmonic_mean_global_degree = norm_global_harm;
 
         // C. Neighbor Stats
-        if (degrees_log[i] == 0) {
+        if (g[i].size() == 0) {
             // Handle isolated nodes
-            // NOTE: there will be no isolated nodes
             f.min_neighbour_degree = 0.0f;
             f.max_neighbour_degree = 0.0f;
             f.arithmetic_mean_neighbour_degree = 0.0f;
@@ -354,8 +368,56 @@ public:
 
         scores = std::vector<NNOutput>(adj.size());
         for (int i = 0; i < adj.size(); i++) {
-            scores[i] = forwardPropagation(features[i].to_vector());
+            if (adj[i].size() == 0) {
+                scores[i] = NNOutput::isolated();
+            } else {
+                scores[i] = forwardPropagation(features[i].to_vector());
+            }
         }
+    }
+
+    Graph dataReduction() {
+        int n = adj.size();
+        
+        std::vector<bool> removed(n, false);
+
+        for(int i=0; i<n; i++) {
+            std::sort(adj[i].begin(), adj[i].end());
+        }
+
+        // reduction of twins
+        // 3. Create a permutation vector [0, 1, ... n-1]
+        std::vector<int> p(n);
+        std::iota(p.begin(), p.end(), 0);
+
+        // 4. Sort the permutation vector based on the adjacency lists
+        // We are sorting the INDICES, not copying the vectors.
+        // Time: O(N * log N * AvgDegree) -> Effectively O(E * log N)
+        std::sort(p.begin(), p.end(), [&](int a, int b) {
+            return adj[a] < adj[b]; // Lexicographical comparison of vectors
+        });
+
+        for (size_t i = 1; i < n; ++i) {
+            int u = p[i];
+            int prev = p[i-1];
+
+            // Compare current node's neighbors with previous node's neighbors
+            if (adj[u] == adj[prev]) {
+                removed[u] = true;
+            }
+        }
+        // reconstruction
+        Graph g(n);
+        for (int i = 0; i < n; i++) {
+            if (removed[i]) continue;
+            for (int next : adj[i]) {
+                if (next == i) continue;
+                if (removed[next]) continue; 
+                g.adj[i].push_back(next);
+            }
+        }
+
+        return g;
     }
 };
 
@@ -573,12 +635,13 @@ int main() {
         int u, v;
         std::cin >> u >> v;
         g.addEdge(u, v);
-
     }
 
-    g.postInit();
+    Graph gr = g.dataReduction();
 
-    Solver solver(std::move(g), calculateBeamWidth(n, m), calculateDfsSize(n, m), timegate);
+    gr.postInit();
+
+    Solver solver(std::move(gr), calculateBeamWidth(n, m), calculateDfsSize(n, m), timegate);
 
     const std::vector<int>& result = solver.run();
 
