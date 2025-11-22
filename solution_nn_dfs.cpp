@@ -5,12 +5,11 @@
 #include <chrono>
 #include <cmath>
 #include <tuple>
+#include <numeric>
 
 #include "model_weights.h"
 
 /*
-MAXPATHS_GLOBAL_POOL: double the higher the more accurate and slower
-
 UPDATE_NOW_AFTER_TICKS: int the higher the slower the alg gets. 
         It value states after how many calls of 
         timegate.updateNow() will now actually be updated 
@@ -20,42 +19,42 @@ TIME_LIMIT_SECONDS: double
 */
 
 #define ENABLE_MAX_PATHS true
-#define MAXPATHS_GLOBAL_POOL 500'000'000.0
+#define MAXPATHS 5000
 
 #define ENABLE_TIME_LIMIT true
 #define TIME_LIMIT_SECONDS 19.5 
-#define UPDATE_NOW_AFTER_TICKS 1'000'000;
+#define UPDATE_NOW_AFTER_TICKS 1000
 
 #define SENTINEL_CHANGES_SEPARATOR -1
 
 struct TimeGate {
 #if ENABLE_TIME_LIMIT
-    std::chrono::steady_clock::time_point startTime;
-    bool timeExpired = false;
-    int nextUpdate = UPDATE_NOW_AFTER_TICKS;
+    std::chrono::steady_clock::time_point m_start_time;
+    bool m_time_expired = false;
+    int m_next_update = UPDATE_NOW_AFTER_TICKS;
 
 public:
     void init() {
-        startTime = std::chrono::steady_clock::now();
-        timeExpired = false;
-        nextUpdate = UPDATE_NOW_AFTER_TICKS;
+        m_start_time = std::chrono::steady_clock::now();
+        m_time_expired = false;
+        m_next_update = UPDATE_NOW_AFTER_TICKS;
     }
 
     void updateNow() {
-        if (nextUpdate <= 0) {
+        if (m_next_update <= 0) {
             auto now = std::chrono::steady_clock::now();
-            std::chrono::duration<double> elapsed = now - startTime;
+            std::chrono::duration<double> elapsed = now - m_start_time;
             if (elapsed.count() > TIME_LIMIT_SECONDS) {
-                timeExpired = true;
+                m_time_expired = true;
             }
-            nextUpdate = UPDATE_NOW_AFTER_TICKS;
+            m_next_update = UPDATE_NOW_AFTER_TICKS;
         } else {
-            nextUpdate--;
+            m_next_update--;
         }
     }
 
     bool expired() const {
-        return timeExpired;
+        return m_time_expired;
     }
 #else
     void init() {}
@@ -68,7 +67,7 @@ public:
 // -- NN stuff --
 
 // 1. Activation Function (ReLU)
-void leaky_relu(float* input, int size) {
+void leakyRelu(float* input, int size) {
     for (int i = 0; i < size; i++) {
         if (input[i] < 0) {
             input[i] = input[i] * 0.01;
@@ -104,6 +103,13 @@ void denseLayer(const float* input, const float* weights, const float* bias, flo
 struct NNOutput {
     float chanceOfNodeBeingInPath;
     float chanceOfNodeBeingStarterNode;
+
+    static NNOutput isolated() {
+        NNOutput out;
+        out.chanceOfNodeBeingInPath = -1.0f;
+        out.chanceOfNodeBeingStarterNode = -1.0f;
+        return out;
+    }
 };
 
 NNOutput forwardPropagation(const std::vector<float>& input_data) {
@@ -116,12 +122,12 @@ NNOutput forwardPropagation(const std::vector<float>& input_data) {
     denseLayer(input_data.data(), layer1_weight, layer1_bias, hidden_layer1, layer1_weight_in, layer1_weight_out);
     
     // --- Activation (ReLU) ---
-    leaky_relu(hidden_layer1, layer1_weight_out);
+    leakyRelu(hidden_layer1, layer1_weight_out);
     
     // --- Layer 2 Forward ---
     denseLayer(hidden_layer1, layer2_weight, layer2_bias, hidden_layer2, layer2_weight_in, layer2_weight_out);
     
-    leaky_relu(hidden_layer2, layer2_weight_out);
+    leakyRelu(hidden_layer2, layer2_weight_out);
 
     denseLayer(hidden_layer2, layer3_weight, layer3_bias, final_output, layer3_weight_in, layer3_weight_out);
 
@@ -235,6 +241,7 @@ std::vector<float> getClusteringCoeffs(std::vector<std::vector<int>>& g) {
 
 std::vector<NodeFeaturesNormalized> calculateFeatures(std::vector<std::vector<int>>& g) {
     int n = g.size();
+    int no_0_n = 0;
 
     std::vector<float> degrees_log(n, 0);
     
@@ -243,7 +250,9 @@ std::vector<NodeFeaturesNormalized> calculateFeatures(std::vector<std::vector<in
         // we do log here to give higher impact to lower weights 
         // (distinction between 2 and 4 degree should be bigger than 1001 degree and 1030 degree)
         // we need to use log1p to avoid division by 0 later while calculating harmonic mean
+        if (g[i].size() == 0) continue;
         degrees_log[i] = log1p(g[i].size()); 
+        no_0_n++;
     }
 
     std::vector<float> coeffs = getClusteringCoeffs(g);
@@ -251,7 +260,7 @@ std::vector<NodeFeaturesNormalized> calculateFeatures(std::vector<std::vector<in
     for (double coeff : coeffs) {
         running_sum += coeff;
     }
-    double global_mean_coeff = running_sum / n;
+    double global_mean_coeff = running_sum / no_0_n;
 
     // 2. Calculate Global Statistics
     double global_sum = 0;
@@ -260,7 +269,11 @@ std::vector<NodeFeaturesNormalized> calculateFeatures(std::vector<std::vector<in
     float global_min_d = std::numeric_limits<float>::max();
     float global_max_d = 0.0f;
 
+    int i = -1;
     for(float d : degrees_log) {
+        i++;
+        if (g[i].size() == 0) continue;
+
         global_min_d = std::min(global_min_d, d);
         global_max_d = std::max(global_max_d, d);
 
@@ -270,13 +283,13 @@ std::vector<NodeFeaturesNormalized> calculateFeatures(std::vector<std::vector<in
         }
     }
 
-    float global_arithmetic_mean = (n > 0) ? (float)(global_sum / n) : 0.0f;
+    float global_arithmetic_mean = (no_0_n > 0) ? (float)(global_sum / no_0_n) : 0.0f;
     
     // Note: Technically Harmonic mean of a set containing 0 is 0. 
     // Since we treated isolated nodes as 0, checking if global_reciprocal_sum > 0 is a proxy.
     float global_harmonic_mean = 0.0f;
     if (global_reciprocal_sum > 1e-9) {
-        global_harmonic_mean = (float)(n / global_reciprocal_sum);
+        global_harmonic_mean = (float)(no_0_n / global_reciprocal_sum);
     }
 
     float norm_global_arith = normalize(global_arithmetic_mean, global_min_d, global_max_d);
@@ -296,9 +309,8 @@ std::vector<NodeFeaturesNormalized> calculateFeatures(std::vector<std::vector<in
         f.harmonic_mean_global_degree = norm_global_harm;
 
         // C. Neighbor Stats
-        if (degrees_log[i] == 0) {
+        if (g[i].size() == 0) {
             // Handle isolated nodes
-            // NOTE: there will be no isolated nodes
             f.min_neighbour_degree = 0.0f;
             f.max_neighbour_degree = 0.0f;
             f.arithmetic_mean_neighbour_degree = 0.0f;
@@ -334,14 +346,14 @@ std::vector<NodeFeaturesNormalized> calculateFeatures(std::vector<std::vector<in
     return features;
 }
 
+
 // Represents an unweighted undirected graph
 class Graph {
 public:
     std::vector<std::vector<int>> adj;
     std::vector<NNOutput> scores;
-    float totalScoreStarterNode;
 
-    Graph(int V) : totalScoreStarterNode(0.0) {
+    Graph(int V)  {
         adj.resize(V);
     }
 
@@ -354,25 +366,81 @@ public:
         return adj.size();
     }
 
-    void afterInputSort() {
+    void postInit() {
 
         auto features = calculateFeatures(adj);
 
         scores = std::vector<NNOutput>(adj.size());
         for (int i = 0; i < adj.size(); i++) {
-            scores[i] = forwardPropagation(features[i].to_vector());
-            totalScoreStarterNode += scores[i].chanceOfNodeBeingStarterNode;
+            if (adj[i].size() == 0) {
+                scores[i] = NNOutput::isolated();
+            } else {
+                scores[i] = forwardPropagation(features[i].to_vector());
+            }
         }
 
-        for (int i = 0; i < adj.size(); i++) {
-            sort(adj[i].begin(), adj[i].end(), [&](int a, int b) {
+        for(int i = 0; i < adj.size(); i++) {
+            std::sort(adj[i].begin(), adj[i].end(), [&](int a, int b) {
                 return scores[a].chanceOfNodeBeingInPath > scores[b].chanceOfNodeBeingInPath;
             });
         }
     }
+
+    Graph dataReduction() {
+        int n = adj.size();
+        
+        std::vector<bool> removed(n, false);
+
+        for(int i=0; i<n; i++) {
+            std::sort(adj[i].begin(), adj[i].end());
+        }
+
+        // reduction of twins
+        // 3. Create a permutation vector [0, 1, ... n-1]
+        std::vector<int> p(n);
+        std::iota(p.begin(), p.end(), 0);
+
+        // 4. Sort the permutation vector based on the adjacency lists
+        // We are sorting the INDICES, not copying the vectors.
+        // Time: O(N * log N * AvgDegree) -> Effectively O(E * log N)
+        std::sort(p.begin(), p.end(), [&](int a, int b) {
+            return adj[a] < adj[b]; // Lexicographical comparison of vectors
+        });
+
+        for (size_t i = 1; i < n; ++i) {
+            int u = p[i];
+            int prev = p[i-1];
+
+            // Compare current node's neighbors with previous node's neighbors
+            if (adj[u] == adj[prev]) {
+                removed[u] = true;
+            }
+        }
+        // reconstruction
+        Graph g(n);
+        for (int i = 0; i < n; i++) {
+            if (removed[i]) continue;
+            for (int next : adj[i]) {
+                if (next == i) continue;
+                if (removed[next]) continue; 
+                g.adj[i].push_back(next);
+            }
+        }
+
+        return g;
+    }
 };
 
-class LIPPSolver {
+// --- Helper to print vector ---
+void printPath(const std::vector<int>& path) {
+    std::cout << path.size() << "\n";
+    for (int v : path) {
+        std::cout << v << " ";
+    }
+    std::cout << "\n";
+}
+
+class Solver {
 private:
     // Corresponds to 'P_max' in Algorithm 3/4
     std::vector<int> m_path_max;
@@ -390,11 +458,11 @@ private:
 
     std::vector<bool> m_valid_neighbour_store;
 
-    int m_current_max_paths;
-
     int m_num_paths;
     int m_last_improv;
     bool m_truncated;
+
+    int m_num_of_valid_nodes;
 
     // Helper to check if the solution is better and update
     void updateIfBetter() {
@@ -423,17 +491,19 @@ private:
             if (m_valid_vertices[t]) {
                 m_changes.push_back(t);
                 m_valid_vertices[t] = false;
+                m_num_of_valid_nodes--;
+                no_valid_neighbors = false;
             }
         }
 
         // all neighbours are removed
+        if (m_path_max.size() >= m_num_of_valid_nodes + m_path_temp.size() + 1) {
+            goto cleanup;
+        }
 
         for (int idx = m_changes.size() - 1; m_changes[idx] != SENTINEL_CHANGES_SEPARATOR; idx-- ) {
 
-
             if (m_timegate.expired()) break;
-
-            no_valid_neighbors = false;
 
             int t = m_changes[idx];
 
@@ -448,9 +518,11 @@ private:
         }
 
         // cleanup
+        cleanup:
         while(m_changes.back() != SENTINEL_CHANGES_SEPARATOR) {
             m_valid_vertices[m_changes.back()] = true;
             m_changes.pop_back();
+            m_num_of_valid_nodes++;
         }
         m_changes.pop_back(); // pop sentinel
 
@@ -463,7 +535,7 @@ private:
             updateIfBetter();
 
             // Line 19: Stopping criterion
-            if ((m_num_paths - m_last_improv) > m_current_max_paths && ENABLE_MAX_PATHS) {
+            if ((m_num_paths - m_last_improv) > MAXPATHS && ENABLE_MAX_PATHS) {
                 // Line 20-21: Truncate
                 // Note: We don't clear P_temp here completely because C++ recursion 
                 // needs to unwind, but we set the flag to stop exploration.
@@ -479,11 +551,11 @@ private:
 
 public:
     
-    LIPPSolver(TimeGate&& timegate, Graph&& g) : m_timegate(std::move(timegate)), m_graph(std::move(g)) {}
+    Solver(Graph&& g, TimeGate&& timegate) : m_timegate(std::move(timegate)), m_graph(std::move(g)) {}
 
     // Algorithm 3: HLIPP
     // Cites: [cite: 181, 187]
-    const std::vector<int>& hlipp() {
+    const std::vector<int>& run() {
         // Line 1: P_max <- empty
         m_path_max.clear();
         
@@ -493,17 +565,10 @@ public:
         // Initial valid vertices set (all vertices are valid at start)
         m_valid_vertices = std::vector<bool>(m_graph.numOfVertices(), true);
 
-        std::vector<std::tuple<float, float, int>> nodes(m_graph.numOfVertices());
-
-        for (int i = 0; i < m_graph.numOfVertices(); i++) {
-            nodes[i] = std::make_tuple(-m_graph.scores[i].chanceOfNodeBeingStarterNode, -m_graph.scores[i].chanceOfNodeBeingInPath, i);
-        }
-
-        std::sort(nodes.begin(), nodes.end());
-
-        for (auto node : nodes) {
-
-            int s = std::get<2>(node);
+        // Line 3: Loop through all vertices
+        // Note: The paper implies an ordering or random access. 
+        // Iterating 0 to V-1 is standard.
+        for (int s = 0; s < m_graph.numOfVertices(); ++s) {
             
             // Line 4: #paths <- 0
             m_num_paths = 0;
@@ -517,13 +582,14 @@ public:
             if (m_timegate.expired()) break;
 
             
-            m_current_max_paths =  (int)(((double)-std::get<0>(node) / (double)m_graph.totalScoreStarterNode) * MAXPATHS_GLOBAL_POOL);
-
             m_valid_vertices[s] = false;
+
+            m_num_of_valid_nodes = m_graph.numOfVertices() - 1;
 
 
             // Line 7: Call recursive procedure
             dfs(s);
+
 
             m_valid_vertices[s] = true;
 
@@ -533,15 +599,6 @@ public:
         return m_path_max;
     }
 };
-
-// --- Helper to print vector ---
-void printPath(const std::vector<int>& path) {
-    std::cout << path.size() << "\n";
-    for (int v : path) {
-        std::cout << v << " ";
-    }
-    std::cout << "\n";
-}
 
 // --- Main Driver for Testing ---
 int main() {
@@ -559,17 +616,15 @@ int main() {
         int u, v;
         std::cin >> u >> v;
         g.addEdge(u, v);
-
     }
 
-    g.afterInputSort();
+    Graph gr = g.dataReduction();
 
-    LIPPSolver solver(std::move(timegate), std::move(g));
-    
-    // Run HLIPP with maxpaths = 100 (sufficient for this small graph)
-    // According to Table 3[cite: 378], maxpaths allows the heuristic to explore 
-    // deeper before giving up on a specific start node.
-    const std::vector<int>& result = solver.hlipp();
+    gr.postInit();
+
+    Solver solver(std::move(gr), std::move(timegate));
+
+    const std::vector<int>& result = solver.run();
 
     printPath(result);
 
