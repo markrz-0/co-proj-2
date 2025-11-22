@@ -419,28 +419,64 @@ void printPath(const std::vector<int>& path) {
     std::cout << "\n";
 }
 
-class BeamSearch {
+class Solver {
     Graph m_graph;
     TimeGate m_time_gate;
     int m_beam_width;
+    int m_dfs_size;
     std::vector<int> m_max_path;
 
 public:
-    BeamSearch(Graph&& g, int beam_width, TimeGate timegate) : m_beam_width(beam_width), m_graph(std::move(g)), m_time_gate(timegate) {}
+    Solver(Graph&& g, int beam_width, int dfs_size, TimeGate timegate) : m_beam_width(beam_width), m_dfs_size(dfs_size), m_graph(std::move(g)), m_time_gate(timegate) {}
 
     const std::vector<int>& run() {
 
         // init
         std::vector<std::tuple<float, float, int>> nodes(m_graph.numOfVertices());
 
+        
+        
         float total_score = 0.0f;
         for (int i = 0; i < m_graph.numOfVertices(); i++) {
-            nodes[i] = std::make_tuple(-m_graph.scores[i].chanceOfNodeBeingStarterNode, -m_graph.scores[i].chanceOfNodeBeingInPath, i);
+            nodes[i] = std::make_tuple(
+                -m_graph.scores[i].chanceOfNodeBeingStarterNode,
+                -m_graph.scores[i].chanceOfNodeBeingInPath,
+                i);
             total_score += m_graph.scores[i].chanceOfNodeBeingInPath;
         }
-
+            
         std::sort(nodes.begin(), nodes.end());
 
+        // dfs
+        for (int i = 0; i < m_dfs_size; i++) {
+            int path_length = 1;
+            Individual ind(m_graph.numOfVertices(), total_score);
+            ind.pushNode(m_graph, std::get<2>(nodes[i]));
+            while(true) {
+                bool extended = false;
+                float best_score = -1.0f;
+                int best_extenson = 0;
+                for (int next : m_graph.adj[ind.m_path.back()]) {
+                    if (ind.isValidExtension(next)) {
+                        if (m_graph.scores[next].chanceOfNodeBeingInPath >= best_score) {
+                            extended = true;
+                            best_score = m_graph.scores[next].chanceOfNodeBeingInPath;
+                            best_extenson = next;
+                        }
+                    }
+                }
+                if (!extended) {
+                    if (ind.m_path.size() > m_max_path.size()) {
+                        m_max_path = ind.m_path;
+                    }
+                    break;
+                }
+                ind.pushNode(m_graph, best_extenson);
+            }
+        }
+
+
+        // beamsearch
         int batch_start = 0;
         int batch_end = std::min(m_beam_width, m_graph.numOfVertices());
 
@@ -451,7 +487,6 @@ public:
             population[i].pushNode(m_graph, std::get<2>(nodes[i]));
         }
         
-        // run
         bool something_extended = true;
         int actual_beam_width = batch_end - batch_start;
         while(!m_time_gate.expired() && something_extended) {
@@ -515,7 +550,11 @@ public:
 };
 
 int calculateBeamWidth(int n, int m) {
-    return 500;
+    return 200;
+}
+
+int calculateDfsSize(int n, int m) {
+    return std::min(n, 20);
 }
 
 // --- Main Driver for Testing ---
@@ -539,7 +578,7 @@ int main() {
 
     g.postInit();
 
-    BeamSearch solver(std::move(g), calculateBeamWidth(n, m), timegate);
+    Solver solver(std::move(g), calculateBeamWidth(n, m), calculateDfsSize(n, m), timegate);
 
     const std::vector<int>& result = solver.run();
 

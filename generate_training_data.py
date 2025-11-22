@@ -73,9 +73,10 @@ try:
         with open(f"tests/out/data{i}.out", 'r') as f:
             _ = f.readline()
             nodes = list(map(int, f.readline().strip().split(" ")))
-            p = (len(nodes) - 1) / 2
+            p = len(nodes) - 1
+            mlt = p ** (-4/3)
             for idx, node in enumerate(nodes):
-                output_data[node] = '1.0 ' + str((idx / p - 1) * (idx / p - 1)) + '\n'
+                output_data[node] = '1.0 ' + str(mlt * idx * (idx - p)) + '\n'
 
             total_output_data.extend(output_data)
         with open(f"tests/features/data{i}.out", 'r') as f:

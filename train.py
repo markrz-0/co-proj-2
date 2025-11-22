@@ -70,13 +70,13 @@ if __name__ == "__main__":
     # Add more file pairs here in the future
     DATA_SOURCES = [
         {
-            'features': os.path.join('data', 'features_pack_1763768526.txt'), 
-            'output': os.path.join('data', 'output_pack_1763768526.txt')
+            'features': os.path.join('data', 'features_pack_1763780555.txt'), 
+            'output': os.path.join('data', 'output_pack_1763780555.txt')
         },
-        {
-            'features': os.path.join('data', 'features_pack_1763769797.txt'), 
-            'output': os.path.join('data', 'output_pack_1763769797.txt')
-        },
+        # {
+        #     'features': os.path.join('data', 'features_pack_1763769797.txt'), 
+        #     'output': os.path.join('data', 'output_pack_1763769797.txt')
+        # },
     ]
 
     try:
