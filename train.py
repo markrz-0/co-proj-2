@@ -9,19 +9,26 @@ import matplotlib.pyplot as plt
 # 1. Define the Neural Network Architecture
 # ==========================================
 class SimpleNN(nn.Module):
-    def __init__(self, input_size=7, hidden_size=20, output_size=2):
+    def __init__(self, input_size=10, hidden_size=20, output_size=2):
         super(SimpleNN, self).__init__()
         # Input Layer -> Hidden Layer
         self.layer1 = nn.Linear(input_size, hidden_size)
         # Activation function
-        self.relu = nn.ReLU()
+        self.leaky_relu = nn.LeakyReLU()
         # Hidden Layer -> Output Layer
-        self.layer2 = nn.Linear(hidden_size, output_size)
+        self.layer2 = nn.Linear(hidden_size, hidden_size)
+        self.layer3 = nn.Linear(hidden_size, output_size)
 
     def forward(self, x):
         out = self.layer1(x)
-        out = self.relu(out)
+        out = self.leaky_relu(out)
+        
         out = self.layer2(out)
+
+        out = self.leaky_relu(out)
+        out = self.layer3(out)
+        
+        # out = self.layer4(out)
         return out
 
 # ==========================================
@@ -63,13 +70,13 @@ if __name__ == "__main__":
     # Add more file pairs here in the future
     DATA_SOURCES = [
         {
-            'features': os.path.join('data', 'features_pack_1763749469.txt'), 
-            'output': os.path.join('data', 'output_pack_1763749469.txt')
+            'features': os.path.join('data', 'features_pack_1763768526.txt'), 
+            'output': os.path.join('data', 'output_pack_1763768526.txt')
         },
-        # {
-        #     'features': os.path.join('data', 'features_pack_1763736842.txt'), 
-        #     'output': os.path.join('data', 'output_pack_1763736842.txt')
-        # },
+        {
+            'features': os.path.join('data', 'features_pack_1763769797.txt'), 
+            'output': os.path.join('data', 'output_pack_1763769797.txt')
+        },
     ]
 
     try:

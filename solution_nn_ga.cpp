@@ -52,7 +52,7 @@ struct TimeGate {
     }
 };
 
-// -- NN stuff --
+// -- NN stuff -- OUTDATED!!! COPY FORM NN-DFS
 
 // 1. Activation Function (ReLU)
 void relu(float* input, int size) {

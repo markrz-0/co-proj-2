@@ -24,7 +24,7 @@ TIME_LIMIT_SECONDS: double
 
 #define ENABLE_TIME_LIMIT true
 #define TIME_LIMIT_SECONDS 19.5 
-#define UPDATE_NOW_AFTER_TICKS 300
+#define UPDATE_NOW_AFTER_TICKS 1'000'000;
 
 #define SENTINEL_CHANGES_SEPARATOR -1
 
@@ -68,10 +68,10 @@ public:
 // -- NN stuff --
 
 // 1. Activation Function (ReLU)
-void relu(float* input, int size) {
+void leaky_relu(float* input, int size) {
     for (int i = 0; i < size; i++) {
         if (input[i] < 0) {
-            input[i] = 0;
+            input[i] = input[i] * 0.01;
         }
     }
 }
@@ -107,18 +107,23 @@ struct NNOutput {
 };
 
 NNOutput forwardPropagation(const std::vector<float>& input_data) {
-    float hidden_layer[layer1_weight_out]; // Buffer for layer 1 output
-    float final_output[layer2_weight_out]; // Buffer for layer 2 output
+    float hidden_layer1[layer1_weight_out]; // Buffer for layer 1 output
+    float hidden_layer2[layer2_weight_out]; // Buffer for layer 2 output
+    float final_output[layer3_weight_out]; // Buffer for layer 3 output
 
     // --- Layer 1 Forward ---
     // Use the variable names generated in model_weights.h (e.g., fc1_weight, fc1_bias)
-    denseLayer(input_data.data(), layer1_weight, layer1_bias, hidden_layer, layer1_weight_in, layer1_weight_out);
+    denseLayer(input_data.data(), layer1_weight, layer1_bias, hidden_layer1, layer1_weight_in, layer1_weight_out);
     
     // --- Activation (ReLU) ---
-    relu(hidden_layer, layer1_weight_out);
+    leaky_relu(hidden_layer1, layer1_weight_out);
     
     // --- Layer 2 Forward ---
-    denseLayer(hidden_layer, layer2_weight, layer2_bias, final_output, layer2_weight_in, layer2_weight_out);
+    denseLayer(hidden_layer1, layer2_weight, layer2_bias, hidden_layer2, layer2_weight_in, layer2_weight_out);
+    
+    leaky_relu(hidden_layer2, layer2_weight_out);
+
+    denseLayer(hidden_layer2, layer3_weight, layer3_bias, final_output, layer3_weight_in, layer3_weight_out);
 
     NNOutput out;
 
@@ -142,6 +147,9 @@ struct NodeFeaturesNormalized {
     float harmonic_mean_neighbour_degree;
     float arithmetic_mean_global_degree;
     float harmonic_mean_global_degree;
+    float clustering_coeff;
+    float mean_neighbour_clustering_coeff;
+    float mean_global_clustering_coeff;
 
     std::vector<float> to_vector() {
         std::vector<float> data = { 
@@ -151,7 +159,10 @@ struct NodeFeaturesNormalized {
             arithmetic_mean_neighbour_degree,
             harmonic_mean_neighbour_degree,
             arithmetic_mean_global_degree,
-            harmonic_mean_global_degree
+            harmonic_mean_global_degree,
+            clustering_coeff,
+            mean_neighbour_clustering_coeff,
+            mean_global_clustering_coeff
         };
         return data;
     }
@@ -166,7 +177,63 @@ float normalize(float x, float min_val, float max_val) {
 }
 
 
-std::vector<NodeFeaturesNormalized> calculateFeatures(const std::vector<std::vector<int>>& g) {
+// Represents the graph
+std::vector<float> getClusteringCoeffs(std::vector<std::vector<int>>& g) {
+    int n = g.size();
+    std::vector<int> degree(n, 0);
+
+    // calc degree
+    for (int i = 0; i < n; i++) {
+        degree[i] = g[i].size();
+    }
+
+    // 2. Sort adjacency lists for faster intersection (optional but good)
+    for(int i=0; i<n; i++) {
+        std::sort(g[i].begin(), g[i].end());
+    }
+
+    // 3. Build Directed Graph (Low -> High)
+    std::vector<std::vector<int>> dag_adj(n);
+    for (int u = 0; u < n; u++) {
+        for (int v : g[u]) {
+            if (degree[u] < degree[v] || (degree[u] == degree[v] && u < v)) {
+                dag_adj[u].push_back(v);
+            }
+        }
+    }
+
+    // 4. Count Triangles
+    std::vector<int> triangles(n, 0);
+    for (int u = 0; u < n; u++) {
+        for (int v : dag_adj[u]) {
+            for (int w : dag_adj[v]) {
+                // Check if edge (u, w) exists using binary search (std::binary_search)
+                // We check original adj because direction might be u->w or w->u
+                if (std::binary_search(g[u].begin(), g[u].end(), w)) {
+                    triangles[u]++;
+                    triangles[v]++;
+                    triangles[w]++;
+                }
+            }
+        }
+    }
+
+    // 5. Calc Metrics
+    std::vector<float> coeffs(n);
+    for(int i=0; i<n; i++) {
+        long long d = degree[i];
+        if (d > 1) {
+            coeffs[i] = (2.0 * triangles[i]) / (d * (d - 1));
+        } else {
+            coeffs[i] = 0.0;
+        }
+    }
+    return coeffs;
+}
+
+
+
+std::vector<NodeFeaturesNormalized> calculateFeatures(std::vector<std::vector<int>>& g) {
     int n = g.size();
 
     std::vector<float> degrees_log(n, 0);
@@ -178,6 +245,13 @@ std::vector<NodeFeaturesNormalized> calculateFeatures(const std::vector<std::vec
         // we need to use log1p to avoid division by 0 later while calculating harmonic mean
         degrees_log[i] = log1p(g[i].size()); 
     }
+
+    std::vector<float> coeffs = getClusteringCoeffs(g);
+    double running_sum = 0.0f;
+    for (double coeff : coeffs) {
+        running_sum += coeff;
+    }
+    double global_mean_coeff = running_sum / n;
 
     // 2. Calculate Global Statistics
     double global_sum = 0;
@@ -234,6 +308,7 @@ std::vector<NodeFeaturesNormalized> calculateFeatures(const std::vector<std::vec
             float max_d = 0.0f;
             double sum_d = 0;
             double sum_reciprocal_d = 0;
+            double running_sum = 0.0;
 
             for (int neighbor : g[i]) {
                 float d_neighbor = degrees_log[neighbor];
@@ -243,12 +318,16 @@ std::vector<NodeFeaturesNormalized> calculateFeatures(const std::vector<std::vec
                 
                 sum_d += d_neighbor;
                 sum_reciprocal_d += 1.0 / d_neighbor;
+                running_sum += coeffs[neighbor];
             }
 
             f.min_neighbour_degree = normalize(min_d, global_min_d, global_max_d);
             f.max_neighbour_degree = normalize(max_d, global_min_d, global_max_d);
             f.arithmetic_mean_neighbour_degree = normalize((float)(sum_d / g[i].size()), global_min_d, global_max_d);
             f.harmonic_mean_neighbour_degree = normalize((float)(g[i].size() / sum_reciprocal_d), global_min_d, global_max_d);
+            f.clustering_coeff = coeffs[i];
+            f.mean_neighbour_clustering_coeff = running_sum / g[i].size();
+            f.mean_global_clustering_coeff = global_mean_coeff;
         }
     }
 

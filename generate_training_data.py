@@ -14,11 +14,16 @@ def save_graph(G: nx.Graph, n, m, filename: str):
 def generate_simple(n, m) -> nx.Graph:
     G: nx.Graph = nx.random_labeled_tree(n)
     left = m - (n - 1)
-    for _ in range(left):
+    errors = 100
+    while left > 0 and errors > 0:
         u = random.randint(0, n - 1)
         v = random.randint(0, n - 1)
         if u != v and not G.has_edge(u, v):
             G.add_edge(u, v)
+            errors = 100
+            left -= 1
+        else:
+            errors -= 1
 
     return G
 
@@ -55,9 +60,9 @@ try:
         n = random.randint(min_n, max_n)
         m = int(random.random()  * n * n)
         
-        print(f"{i}/{k} (N = {n}; M = {m})")
         
         g = generate_simple(n, m)
+        print(f"{i}/{k} (N = {n}; M = {len(g.edges)})")
         save_graph(g, n, m, f'tests/in/data{i}.in')
 
         os.system(f"{solver_name} < tests/in/data{i}.in > tests/out/data{i}.out")
